@@ -1,93 +1,88 @@
-# DHCP Protocol Emulator
+# DHCP.EMU
 
-A full-stack, distributed DHCP protocol emulator that visualizes the DORA (Discover, Offer, Request, Acknowledge) exchange in real-time. It consists of a React frontend, a FastAPI backend orchestrator, and three Linux VMs acting as the DHCP Server, Relay Agent, and Client.
+![Python](https://img.shields.io/badge/Python-3.10+-blue)
+![React](https://img.shields.io/badge/React-18-61dafb)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green)
+![Scapy](https://img.shields.io/badge/Scapy-2.5-orange)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## 🏗 Architecture
+DHCP.EMU is a full-stack, enterprise-grade DHCP protocol emulator that visualizes real DHCP packet exchanges (DORA process) across virtual machines in real-time. Built for network engineers and protocol enthusiasts, it injects and captures live Layer 2/3 packets on the wire, offering deep packet inspection, RFC compliance validation, and a dynamic WebSocket-driven dashboard.
 
-- **Mac Host**: Runs the React frontend and FastAPI backend orchestrator.
-- **vm-server (192.168.128.10)**: Runs the Python DHCP Server (`vm1_server/server.py`).
-- **vm-agent (192.168.128.20)**: Runs the DHCP Relay Agent (`vm3_relay/relay.py`), intercepting broadcasts and appending Option 82.
-- **vm-client (192.168.128.50)**: Runs the DHCP Client (`vm2_client/client.py`), performing the DORA exchange on demand.
+## 📸 Screenshots
 
-## 🌐 VM Network Configuration (VirtualBox / UTM)
+### Landing Page
+![Landing Page](captures/landing-page.png)
 
-To replicate this environment, create 3 Linux VMs (e.g., Ubuntu Server). They must be connected to a shared internal network so they can broadcast to each other, while still being accessible via SSH from the host.
+### Live Dashboard — Real-time DORA Exchange
+![Dashboard](captures/dashboard.png)
 
-### 1. Network Adapter Setup
-For each VM, configure the primary network adapter (`enp0s1` or `eth0`):
-- **VirtualBox**: Set Adapter 1 to **Host-Only Adapter** (e.g., `vboxnet0`) configured with the subnet `192.168.128.0/24`.
-- **UTM**: Set the Network type to **Shared Network** or **Host-Only** with the subnet `192.168.128.0/24`.
+### Proof of Real IP Assignment (Before vs After)
+> Terminal output showing `ip addr show enp0s1` before and after exchange — 192.168.128.100 genuinely assigned by the DHCP server
+![Before vs After](captures/before_vs_after_DHCP.png)
 
-*Note: The network interface name used in the scripts defaults to `enp0s1`. If your hypervisor uses `eth0` or `enp0s3`, you must update the `IFACE` variables in the `config.py` files.*
+### System Architecture
+![Architecture](captures/Architecture.png)
 
-### 2. Static IP Assignment
-Assign static IPs to the VMs on the Host-Only network. Edit `/etc/netplan/` (Ubuntu) or `/etc/network/interfaces` inside each VM:
+### Lease Management
+![Leases](captures/leases.png)
 
-- **Server VM**: `192.168.128.10`
-- **Relay VM**: `192.168.128.20`
-- **Client VM**: `192.168.128.50`
+### RFC 2131 Compliance Validation
+![Validation](captures/validation.png)
 
-### 3. SSH Configuration
-Ensure the host Mac can SSH into the VMs seamlessly without a password.
-Add the following to your `~/.ssh/config`:
-```ssh-config
-Host vm-server
-    HostName 192.168.128.10
-    User <your-vm-username>
-    IdentityFile ~/.ssh/id_rsa
+### Custom Packet Builder
+![Packet Builder](captures/packet-builder.png)
 
-Host vm-agent
-    HostName 192.168.128.20
-    User <your-vm-username>
-    IdentityFile ~/.ssh/id_rsa
+### Wireshark PCAP Export
+![Wireshark](captures/wireshark.png)
 
-Host vm-client
-    HostName 192.168.128.50
-    User <your-vm-username>
-    IdentityFile ~/.ssh/id_rsa
-```
-Make sure to generate an SSH key (`ssh-keygen`) and copy it to all VMs (`ssh-copy-id vm-server`, etc.).
+## ✨ Features
 
-### 4. Sudo Permissions
-The emulator relies on raw sockets (Scapy) and network flushing, which requires root access. To prevent password prompts from breaking the automation, allow the VM user to run `sudo` without a password.
-Inside each VM, run `sudo visudo` and append:
-```
-<your-vm-username> ALL=(ALL) NOPASSWD: ALL
-```
+- **Real DORA Exchange:** Simulates true DHCP sequences (Discover, Offer, Request, Acknowledge) on live network interfaces.
+- **Option 82 Relay Agent:** Includes full support for DHCP Relay Agents injecting Circuit ID and Remote ID.
+- **Live Packet Inspector:** Decode raw network packets in real-time with an interactive UI.
+- **RFC Validator:** 14 automated compliance checks against RFC 2131, RFC 2132, and RFC 3046.
+- **Lease Management:** Real-time tracking of MAC-to-IP bindings, lease expirations, and subnet pools.
+- **Packet Builder:** Craft custom malformed or edge-case DHCP payloads directly from the dashboard.
+- **Live WebSocket Feed:** Millisecond-accurate event streaming of the complete protocol lifecycle.
+- **PCAP Export:** Export any exchange as a `.pcap` file for deep analysis in Wireshark.
 
-## 🚀 Setup & Deployment
+## 🏗️ System Architecture
 
-Once the VMs are provisioned, networking is configured, and SSH aliases are working, you can use the automated deployment script.
+The emulator relies on a 3-VM architecture bridged over a Host-Only network to isolate and inspect raw DHCP broadcast traffic without interfering with external networks.
 
-```bash
-# Make the script executable
-chmod +x deploy.sh
+- **VM1 (DHCP Server - `192.168.128.10`)**: Runs the authoritative server script and manages the `leases.json` database.
+- **VM2 (DHCP Client - `192.168.128.50`)**: Receives genuine IP assignments.
+- **VM3 (Relay Agent - `192.168.128.20`)**: Intercepts client broadcasts, injects Option 82, and forwards to the server.
 
-# Run the deployment
-./deploy.sh
-```
+The **mac_backend** orchestrates the VMs via SSH (`paramiko`), triggers packet injection using Python `scapy`, and streams the results back to the React UI.
 
-### What `deploy.sh` does:
-1. `scp`'s the respective Python scripts to `vm-server`, `vm-agent`, and `vm-client`.
-2. Installs `python3`, `pip3`, and `scapy` on all VMs.
-3. Kills any existing background instances of the DHCP server and relay.
-4. Safely starts `server.py` and `relay.py` in the background (detached from SSH via `ssh -f` and `setsid`).
-5. Starts the FastAPI backend orchestrator (`uvicorn`) on port 8000.
-6. Installs Node dependencies and starts the Vite frontend on port 5173.
+## 🚀 Quick Start
 
-## 🎮 Usage
+1. Set up the three Ubuntu VMs with the correct static IPs (`enp0s1`).
+2. Copy the `.env.example` file to `.env` and fill out your SSH credentials:
+   ```bash
+   cp .env.example .env
+   ```
+3. Run the automated deployment script to copy components to their respective VMs:
+   ```bash
+   ./deploy.sh
+   ```
+4. Start the backend:
+   ```bash
+   cd mac_backend
+   uvicorn main:app --reload
+   ```
+5. Start the frontend:
+   ```bash
+   cd mac_frontend
+   npm run dev
+   ```
 
-1. Open your browser to `http://localhost:5173/dashboard`.
-2. Click **Start Exchange** to trigger a DORA sequence.
-    - The backend orchestrator connects to `vm-client` via SSH.
-    - It drops the client's management IP (`ip addr flush`), enables promiscuous mode, and fires the Discover packet.
-    - The Relay agent intercepts, adds Option 82, and unicasts to the Server.
-    - Packets are streamed via WebSockets back to the React UI in real-time.
-    - Finally, the backend restores the client's management IP (`192.168.128.50`) so SSH remains functional.
-3. Click the **Release** button to dispatch a DHCP Release packet, which securely clears the lease on the server.
+## 🛠️ Tech Stack
 
-## 🛠 Troubleshooting
-
-- **Server/Relay not capturing packets**: Verify the network interface is correct (`enp0s1`). You can tail the logs directly on the VMs: `ssh vm-server "tail -f /tmp/server.log"`
-- **Client times out**: Ensure the client VM has promiscuous mode capabilities in the hypervisor settings. (VirtualBox: Network -> Advanced -> Promiscuous Mode: Allow All).
-- **Backend fails to start client**: Ensure SSH keys are correctly set up and `sudo` requires no password on the `vm-client`.
+| Component | Technology |
+|---|---|
+| **Frontend** | React 18, Vite, Tailwind CSS v4, Framer Motion |
+| **Backend** | Python, FastAPI, Uvicorn, WebSockets |
+| **Network Engine**| Scapy, raw sockets, SSH (Paramiko) |
+| **Virtualization**| UTM (Ubuntu Server 22.04 VMs) |
