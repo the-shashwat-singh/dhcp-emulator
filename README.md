@@ -78,6 +78,9 @@ The **mac_backend** orchestrates the VMs via SSH (`paramiko`), triggers packet i
    npm run dev
    ```
 
+## 🖥️ VM Setup
+New to this project? See the complete [VM Setup Guide](VM_SETUP.md) for step-by-step instructions on creating and configuring the 3 virtual machines.
+
 ## 🛠️ Tech Stack
 
 | Component | Technology |
