@@ -1,0 +1,7 @@
+scapy==2.5.0
+paramiko
+fastapi
+uvicorn
+websockets
+requests
+python-dotenv

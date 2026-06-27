@@ -1,0 +1,11 @@
+.DS_Store
+*.log
+.env
+__pycache__/
+*.pyc
+node_modules/
+captures/
+*.pcap
+/tmp/
+leases.json
+pool.json
