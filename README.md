@@ -32,7 +32,7 @@ DHCP.EMU is a full-stack, enterprise-grade DHCP protocol emulator that visualize
 ### Custom Packet Builder
 ![Packet Builder](captures/packet-builder.png)
 
-### Wireshark PCAP Export
+### Wireshark Screenshot
 ![Wireshark](captures/wireshark.png)
 
 ## ✨ Features
