@@ -2,132 +2,264 @@
 
 This guide walks you through creating and configuring the 3 Ubuntu VMs required to run DHCP.EMU from scratch.
 
-## Prerequisites
-- UTM (Mac) or VirtualBox (Windows/Linux/Mac)
-- Ubuntu Server 22.04 ISO
-- At least 4GB RAM and 20GB disk space available
+> **If you're rebuilding:** The `docs/vm-configs/` folder contains the exact working network config files from a verified setup. Copy them in at Step 3 instead of writing them manually.
+
+---
 
 ## Overview
-You will create 3 VMs:
+
 | VM | Role | Host-Only IP | SSH Alias |
 |---|---|---|---|
 | VM1 | DHCP Server | 192.168.128.10 | vm-server |
 | VM2 | DHCP Client | 192.168.128.50 | vm-client |
 | VM3 | Relay Agent | 192.168.128.20 | vm-agent |
 
-> ⚠️ **IMPORTANT**: During a DHCP exchange, `enp0s1` (the Host-Only adapter) gets its IP temporarily flushed and reassigned. This is by design. SSH connections must always go through `enp0s2` (the NAT adapter) to survive the exchange. The deploy script handles this automatically.
+Each VM has **two network adapters:**
+- `enp0s1` — Host-Only → static IP, used for all DHCP traffic between VMs
+- `enp0s2` — NAT (internet) → used for SSH from Mac, package installs, and posting events to the Mac backend
 
-## Section 1 — Creating VMs in UTM
-- Download Ubuntu Server 22.04 ISO
-- Create new VM in UTM, select Linux, allocate 1GB RAM, 10GB disk
-- Add TWO network adapters:
-  - Adapter 1: Host Only — becomes `enp0s1`, used for DHCP traffic and static IP
-  - Adapter 2: Shared Network (NAT) — becomes `enp0s2`, used for SSH and internet
-- Repeat for all 3 VMs
-- *Note: do this for VirtualBox too as an alternative with equivalent steps*
+SSH always goes through `enp0s1` (Host-Only). The `enp0s2` NAT adapter is only used inside the VMs for outbound internet and for POSTing events to `10.0.2.2:8000`.
 
-## Section 2 — Installing Ubuntu
-- Boot from ISO, follow installer
-- Set hostnames: `dhcp-server`, `dhcp-client`, `dhcp-relay`
-- Create user `shashwat` (or whatever `VM_USER` is set to in `.env`)
-- Install OpenSSH server during setup
+---
 
-## Section 3 — Static IP Configuration
-For each VM, configure the Host-Only adapter with a static IP using netplan. Write the exact netplan YAML for each VM:
+## Step 1 — Prerequisites
 
-**VM1 (`/etc/netplan/00-installer-config.yaml`):**
-```yaml
-network:
-  version: 2
-  ethernets:
-    enp0s1:
-      addresses: [192.168.128.10/24]  # static, DHCP traffic
-      nameservers:
-        addresses: [8.8.8.8]
-    enp0s2:
-      dhcp4: true  # NAT, SSH management
+- UTM installed on Mac (Apple Silicon)
+- Ubuntu Server 22.04 LTS ISO downloaded from ubuntu.com
+- At least 30GB free disk space total (10GB per VM)
+
+---
+
+## Step 2 — Create 3 VMs in UTM
+
+Do this for each VM. Settings are identical for all three.
+
+1. Open UTM → **+** → **Virtualize** → **Linux**
+2. Point to Ubuntu Server 22.04 ISO
+3. RAM: **2GB**, CPU: **2 cores**, Disk: **8GB** (do not use the default 20GB+ — it wastes space)
+4. In VM settings → **Network**, set the existing adapter to **Host Only**
+5. Click **New** → **Network** → set to **Emulated VLAN** (this is UTM's NAT with internet — do NOT use "Shared Network", it doesn't work correctly)
+6. Save
+
+Name the VMs: `dhcp-server`, `dhcp-client`, `dhcp-relay`
+
+---
+
+## Step 3 — Install Ubuntu on Each VM
+
+> **Username note:** This guide uses `ubuntu` as the default username — it's what Ubuntu Server creates by default and the easiest choice. If you pick a different username during install, replace every instance of `ubuntu` in this guide with yours, and update `VM_USER` in your `.env` file.
+
+Boot each VM from the ISO and follow the installer:
+
+- Hostname: `dhcp-server` / `dhcp-client` / `dhcp-relay`
+- Username: `ubuntu` (recommended — see note above)
+- **Enable OpenSSH server** during install (required)
+- No extra packages needed
+
+After install, find the current IP of `enp0s1` on each VM (needed for initial SSH):
+```bash
+ip addr show
+# look for inet line on enp0s1 — UTM assigns a temporary IP initially
 ```
-Same pattern for VM2 (192.168.128.50) and VM3 (192.168.128.20). Then run `sudo netplan apply`.
 
-## Section 4 — Passwordless sudo
+---
+
+## Step 4 — Set Static IPs Using systemd-networkd
+
+> **Shortcut:** copy the files from `docs/vm-configs/` directly instead of writing them manually.
+
+Do NOT use netplan for this — NetworkManager and netplan fight each other in this setup. Use systemd-networkd config files directly.
+
+**On each VM, disable NetworkManager first:**
+```bash
+sudo systemctl stop NetworkManager
+sudo systemctl disable NetworkManager
+sudo systemctl mask NetworkManager
+sudo systemctl enable systemd-networkd
+```
+
+**VM1 (dhcp-server) — create `/etc/systemd/network/10-enp0s1.network`:**
+```ini
+[Match]
+Name=enp0s1
+
+[Network]
+Address=192.168.128.10/24
+```
+
+**VM2 (dhcp-client) — create `/etc/systemd/network/10-enp0s1.network`:**
+```ini
+[Match]
+Name=enp0s1
+
+[Network]
+Address=192.168.128.50/24
+```
+
+**VM3 (dhcp-relay) — create `/etc/systemd/network/10-enp0s1.network`:**
+```ini
+[Match]
+Name=enp0s1
+
+[Network]
+Address=192.168.128.20/24
+```
+
+**All 3 VMs — create `/etc/systemd/network/20-enp0s2.network`:**
+```ini
+[Match]
+Name=enp0s2
+
+[Network]
+DHCP=yes
+```
+
+Then apply on each VM:
+```bash
+sudo systemctl restart systemd-networkd
+sudo reboot
+```
+
+After reboot verify:
+```bash
+ip addr show enp0s1 | grep inet
+# vm-server should show 192.168.128.10
+# vm-client should show 192.168.128.50
+# vm-agent  should show 192.168.128.20
+```
+
+---
+
+## Step 5 — Passwordless Sudo
+
 On each VM run:
 ```bash
-sudo visudo
-```
-Add at the bottom:
-```
-your_username ALL=(ALL) NOPASSWD: ALL
+echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/ubuntu
 ```
 
-## Section 5 — SSH Key Setup (on your Mac)
+Do NOT use `sudo visudo` for this — it's error-prone over SSH. The `tee` method is reliable.
+
+---
+
+## Step 6 — SSH Key Setup (on your Mac)
+
 ```bash
 # Generate key if you don't have one
-ssh-keygen -t rsa -b 4096
+ls ~/.ssh/id_rsa.pub || ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/id_rsa
 
-# Copy to each VM (you'll need VM's NAT IP for this)
-# Find NAT IP inside each VM with: ip addr show enp0s2
-ssh-copy-id username@<VM_NAT_IP>
-
-# Add aliases to ~/.ssh/config
+# Copy key to each VM — use the current enp0s1 IP shown after reboot
+ssh-copy-id ubuntu@192.168.128.10   # vm-server
+ssh-copy-id ubuntu@192.168.128.20   # vm-agent
+ssh-copy-id ubuntu@192.168.128.50   # vm-client
 ```
 
-Write the exact `~/.ssh/config` block:
+Add to `~/.ssh/config` on your Mac:
 ```
 Host vm-server
     HostName 192.168.128.10
-    User your_username
-    IdentityFile ~/.ssh/id_rsa
-
-Host vm-client
-    HostName 192.168.128.50
-    User your_username
+    User ubuntu
     IdentityFile ~/.ssh/id_rsa
 
 Host vm-agent
     HostName 192.168.128.20
-    User your_username
+    User ubuntu
+    IdentityFile ~/.ssh/id_rsa
+
+Host vm-client
+    HostName 192.168.128.50
+    User ubuntu
     IdentityFile ~/.ssh/id_rsa
 ```
 
-*Note: SSH aliases use the Host-Only IP on enp0s1. The NAT adapter enp0s2 is used for internet access and initial SSH key copying using the VM's DHCP-assigned NAT IP.*
-
-## Section 6 — Promiscuous Mode
-- **UTM**: In VM settings → Network → check "Allow promiscuous mode"  
-- **VirtualBox**: VM Settings → Network → Adapter 1 → Advanced → Promiscuous Mode → Allow All
-
-## Section 7 — Install Python dependencies on each VM
+Test:
 ```bash
-sudo apt update
-sudo apt install python3 python3-pip -y
-pip3 install scapy==2.5.0 requests --break-system-packages
+ssh vm-server "echo ok"
+ssh vm-agent  "echo ok"
+ssh vm-client "echo ok"
 ```
 
-## Section 8 — Verify everything works
+---
+
+## Step 7 — Enable IP Forwarding on Relay Agent
+
 ```bash
-# From your Mac, test SSH to all 3 VMs
-ssh vm-server "echo 'VM1 OK'"
-ssh vm-client "echo 'VM2 OK'"
-ssh vm-agent "echo 'VM3 OK'"
-
-# Test passwordless sudo
-ssh vm-server "sudo whoami"  # should print: root
-
-# Test network connectivity between VMs
-ssh vm-server "ping -c 3 192.168.128.50"  # server can reach client
-ssh vm-server "ping -c 3 192.168.128.20"  # server can reach relay
-
-# Verify MAC_BACKEND_URL is reachable from VMs
-# The Mac backend must be reachable at 10.0.2.2:8000 from the VMs via enp0s2
-ssh vm-server "curl -s -o /dev/null -w '%{http_code}' http://10.0.2.2:8000/internal/event -X POST -H 'Content-Type: application/json' -d '{\"event\":\"TEST\"}'"
-# Should return 200
+ssh vm-agent "sudo sysctl -w net.ipv4.ip_forward=1 && echo 'net.ipv4.ip_forward=1' | sudo tee -a /etc/sysctl.conf"
 ```
 
-If all commands succeed, run `./deploy.sh` from the project root.
+---
 
-## Section 9 — Common Issues
-- **SSH timeout**: VM might be using wrong adapter for SSH — check `ip addr` inside VM and verify Host-Only adapter has the static IP
-- **Scapy permission denied**: Make sure passwordless sudo is configured
-- **Packets not received**: Enable promiscuous mode in hypervisor settings
-- **Backend can't reach VMs**: Check SSH config aliases and key path in `.env`
-- **Events not appearing in dashboard**: The `MAC_BACKEND_URL` in `.env` must match your hypervisor's NAT gateway. UTM uses `10.0.2.2`, VirtualBox also uses `10.0.2.2`. Verify with: `ssh vm-server "ip route show"` and look for the default gateway.
-- **enp0s1/enp0s2 names may differ**: Some hypervisors assign `eth0`/`eth1` instead. Check with `ip addr` inside the VM and update `DHCP_IFACE` in `.env` accordingly.
+## Step 8 — Install Dependencies
+
+```bash
+for vm in vm-server vm-agent vm-client; do
+  ssh $vm "sudo apt update -q && \
+           sudo apt install -y python3-pip tcpdump net-tools && \
+           pip3 install scapy fastapi uvicorn websockets \
+                        paramiko requests --break-system-packages"
+done
+```
+
+Verify scapy version is 2.5.x:
+```bash
+ssh vm-server "python3 -c 'import scapy; print(scapy.__version__)'"
+```
+
+---
+
+## Step 9 — Deploy and Run
+
+```bash
+# From project root on Mac
+chmod +x deploy.sh
+./deploy.sh
+
+# Start backend
+pkill -f 'uvicorn mac_backend' || true
+nohup python3 -m uvicorn mac_backend.main:app \
+  --host 0.0.0.0 --port 8000 > /tmp/mac_backend.log 2>&1 &
+
+# Start frontend
+cd mac_frontend && npm install && npm run dev
+```
+
+Open `http://localhost:5173`
+
+---
+
+## Step 10 — Verify Everything Works
+
+```bash
+# All VMs reachable
+ssh vm-server "echo ok" && ssh vm-agent "echo ok" && ssh vm-client "echo ok"
+
+# Passwordless sudo works
+ssh vm-server "sudo whoami"   # should print: root
+
+# VMs can reach each other
+ssh vm-server "ping -c 2 192.168.128.20 && ping -c 2 192.168.128.50"
+
+# VMs can reach Mac backend via NAT
+ssh vm-server "curl -s -o /dev/null -w '%{http_code}' \
+  http://10.0.2.2:8000/internal/event \
+  -X POST -H 'Content-Type: application/json' \
+  -d '{\"event\":\"TEST\"}'"
+# Should return 200 or 422 (both mean backend is reachable)
+
+# No rogue DHCP server on Mac (critical)
+sudo lsof -iUDP:67 -n -P   # must return EMPTY
+# If not empty: System Settings → Sharing → Internet Sharing → OFF → reboot Mac
+```
+
+---
+
+## Common Issues
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| SSH timeout after static IP set | Old IP cached in `~/.ssh/known_hosts` | `ssh-keygen -R <old-ip>` then reconnect |
+| Secondary IPs still showing after reboot | NetworkManager fighting systemd-networkd | Make sure NetworkManager is masked (Step 4) |
+| `enp0s1`/`enp0s2` names differ | Hypervisor assigned different names | Check with `ip link show` inside VM, update config files and `.env` |
+| Scapy permission denied | Raw socket needs root | All scripts run with `sudo` via deploy.sh |
+| Events not showing in dashboard | Wrong backend URL from VM | Must be `10.0.2.2:8000` via enp0s2, not the Host-Only IP |
+| Wrong IP assigned / scrambled DORA | Rogue macOS `bootpd` responding | Run `sudo lsof -iUDP:67` — if not empty, turn off Internet Sharing and reboot Mac |
+| Client VM unreachable after exchange | `ip addr flush enp0s1` killed SSH | Client script daemonizes before flush — if broken, go to UTM console and run `sudo ip addr add 192.168.128.50/24 dev enp0s1` |
