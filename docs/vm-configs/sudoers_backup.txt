@@ -1,0 +1,3 @@
+shashwat ALL=(ALL) NOPASSWD:ALL
+shashwat ALL=(ALL) NOPASSWD:ALL
+shashwat ALL=(ALL) NOPASSWD:ALL
