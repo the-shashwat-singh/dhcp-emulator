@@ -59,7 +59,7 @@ def post_event(event_name, pkt, meta=None):
         "event": event_name,
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "from_node": "client",
-        "to_node": "server",
+        "to_node": "relay",
         "packet": parsed_pkt,
         "meta": meta
     }

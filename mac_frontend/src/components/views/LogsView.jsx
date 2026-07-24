@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState} from 'react';
 import { motion, AnimatePresence} from 'framer-motion';
 import PacketDetailCard from '../PacketDetailCard';
+import { logicalSort, formatTime } from '../../utils/event_sorter';
 
 export default function LogsView({ events}) {
  const scrollRef = useRef(null);
@@ -67,11 +68,9 @@ export default function LogsView({ events}) {
  <p className="font-body-md">Awaiting packets on the wire...</p>
  </div>
  ) : (
- events.map((evt, idx) => {
+ logicalSort(events).map((evt, idx) => {
  const isExpanded = expandedIndex === idx;
- // Parse real ISO timestamp
- const date = evt.timestamp ? new Date(evt.timestamp) : new Date();
- const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}.${date.getMilliseconds().toString().padStart(3, '0')}`;
+ const timeStr = formatTime(evt.display_time || evt.timestamp);
 
  return (
  <div key={idx} className="flex flex-col mb-2">

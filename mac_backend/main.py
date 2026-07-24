@@ -302,7 +302,7 @@ if "{msg_type.upper()}" == "DISCOVER":
     # 2. Send DISCOVER
     sendp(pkt, iface='enp0s1', verbose=False)
     
-    post_event("DISCOVER_SENT", "client", "server", init_packet_info)
+    post_event("DISCOVER_SENT", "client", "relay", init_packet_info)
     
     # 4. Wait for OFFER
     offer_sniffer.join(timeout=8)
@@ -362,7 +362,7 @@ if "{msg_type.upper()}" == "DISCOVER":
                 "magic_cookie": "99.130.83.99",
                 "options": [{{"name": "message-type", "value": 3}}, {{"name": "requested_addr", "value": yiaddr}}, {{"name": "server_id", "value": server_id}}, {{"name": "hostname", "value": "{hostname}" if "{hostname}" else "test-client"}}]
             }}
-            post_event("REQUEST_SENT", "client", "server", req_packet_info)
+            post_event("REQUEST_SENT", "client", "relay", req_packet_info)
             
             # 4. Wait for ACK
             ack_sniffer.join(timeout=8)

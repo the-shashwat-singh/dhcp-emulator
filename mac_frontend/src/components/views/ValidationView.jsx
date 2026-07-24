@@ -75,10 +75,12 @@ export default function ValidationView({ events }) {
     {
       id: 'remote_id',
       label: 'Option 82 Remote ID',
-      rule: 'remote_id must equal relay MAC (86:22:6f:8d:6a:1d)',
+      rule: 'remote_id must equal relay MAC',
       test: (events) => {
+        const relayPkt = events.find(e => e.from_node === 'relay' && e.to_node === 'server');
+        const relayMac = relayPkt?.packet?.src_mac;
         const o82 = events.find(e => e.packet?.option82);
-        return o82?.packet?.option82?.remote_id === '86:22:6f:8d:6a:1d';
+        return relayMac && o82?.packet?.option82?.remote_id === relayMac;
       }
     },
     {

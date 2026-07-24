@@ -2,68 +2,9 @@ import React, { useState, useEffect, useRef} from 'react';
 import { motion, AnimatePresence} from 'framer-motion';
 import PacketDetailCard from './PacketDetailCard';
 import TopologyAnimation from './TopologyAnimation';
+import { logicalSort, formatTime } from '../utils/event_sorter';
 
-const formatTime = (ts) => {
-  if (!ts) return '';
-  const d = new Date(ts);
-  return d.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit', 
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-    hour12: false,
-    timeZone: 'Asia/Kolkata'
-  });
-};
 
-const logicalSort = (events) => {
-  const sorted = [...events].sort((a,b) => 
-    (a.seq ?? 999) - (b.seq ?? 999));
-  
-  const result = [];
-  const used = new Set();
-  
-  for (let i = 0; i < sorted.length; i++) {
-    if (used.has(i)) continue;
-    const evt = sorted[i];
-    
-    // For relay→client OFFER/ACK, find the paired 
-    // server→relay event and put it first
-    if ((evt.event === 'OFFER_SENT' || 
-         evt.event === 'ACK_SENT') && 
-        evt.from_node === 'relay' && 
-        evt.to_node === 'client') {
-      // Look ahead for server→relay pair
-      const pairIdx = sorted.findIndex((e, j) => 
-        j > i && j < i + 3 &&
-        e.event === evt.event &&
-        e.from_node === 'server' &&
-        e.to_node === 'relay'
-      );
-      if (pairIdx !== -1) {
-        const serverEvt = {...sorted[pairIdx]};
-        const relayEvt = {...evt};
-        
-        const baseTime = serverEvt.display_time || serverEvt.timestamp;
-        if (baseTime) {
-          relayEvt.display_time = new Date(new Date(baseTime).getTime() + 1).toISOString();
-        }
-        
-        result.push(serverEvt);
-        result.push(relayEvt);
-        used.add(i);
-        used.add(pairIdx);
-        continue;
-      }
-    }
-    
-    if (!used.has(i)) {
-      result.push(evt);
-      used.add(i);
-    }
-  }
-  return result;
-};
 
 export default function DashboardActive({ events, globalState, isHexDump}) {
   const [expandedStep, setExpandedStep] = useState(null);
@@ -113,7 +54,7 @@ export default function DashboardActive({ events, globalState, isHexDump}) {
       report += `EVENT ${idx + 1} — ${eventName}\n`;
       report += `───────────────────────────────────────────────\n`;
       report += `Time:      ${timeStr}\n`;
-      const displayToNode = (evt.from_node === 'client' && (evt.event === 'DISCOVER_SENT' || evt.event === 'REQUEST_SENT')) ? 'relay' : (evt.to_node || 'server');
+      const displayToNode = evt.to_node || 'server';
       report += `From:      ${evt.from_node || 'client'} → ${displayToNode}\n`;
       const sizeStr = evt.packet ? JSON.stringify(evt.packet).length + 42 + ' bytes' : 'N/A';
       report += `Size:      ${sizeStr}\n\n`;
@@ -500,7 +441,7 @@ ${formatOptions(evt.packet.options)}
                                     <span className="font-semibold text-gray-700 w-16 text-right truncate" data-tooltip={evt.from_node === 'relay' ? 'relay agent' : undefined}>{evt.from_node || 'client'}</span>
                                     <span className="text-gray-400">→</span>
                                     {(() => {
-                                      const displayToNode = (evt.from_node === 'client' && (evt.event === 'DISCOVER_SENT' || evt.event === 'REQUEST_SENT')) ? 'relay' : (evt.to_node || 'server');
+                                      const displayToNode = evt.to_node || 'server';
                                       return (
                                         <span className="font-semibold text-gray-700 w-16 truncate" data-tooltip={displayToNode === 'relay' ? 'relay agent' : undefined}>{displayToNode}</span>
                                       );
